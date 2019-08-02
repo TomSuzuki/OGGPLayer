@@ -1,0 +1,344 @@
+gsel 0,-1
+randomize
+#include "kernel32.as"
+#define ERROR_ALREADY_EXISTS $B7
+
+	;コマンドファイル生成
+	file = ""+dir_cmdline
+	cmd = ""+file+"\n"+gettime(7)+"_"+gettime(4)+"_"+gettime(6)+"_"+gettime(5)+"_"+rnd(999)+""
+	notedata = cmd:notesel notedata:notesave "mupl5.ini"
+	;多重起動防止
+	CreateMutex 0, 0, "mupl5":GetLastError
+	if stat = ERROR_ALREADY_EXISTS:end
+	;起動
+	title "Music Player 5 - ver 1.10a"
+	screen 0,512,512:width 512,64
+	color 0:boxf:color 255,255,255:pos 512,64:edmes "Now Loading..."
+	
+#include "vAudio.as"
+#include "lib.as"
+
+#const FadeTime 500
+
+#enum SCR_MAIN
+#enum IMG_01
+#enum IMG_02
+#enum IMG_03
+#enum BUF_01
+
+#uselib "shell32.dll"
+#func DragAcceptFiles "DragAcceptFiles" int,int
+#func DragQueryFile   "DragQueryFileA"  int,int,int,int
+#func DragQueryPoint  "DragQueryPoint"  int,int
+#func DragFinish      "DragFinish"      int
+
+	oncmd gosub *Label_OnDropFiles,0x0233
+	DragAcceptFiles hwnd,1
+
+;deleteobj
+
+	onexit *Label_Exit
+	
+//初期化 ==================================================
+	i = 1:mode = 0:mode2 = 0
+	mloop = 1				;ループ中か
+	playlist_play = 0		;再生中か
+	playlist_play2 = 0		;再生行
+	playlist_name = ""		;作成時
+	playlist_name2 = ""		;再生時
+	playlist_list = ""		;作成時
+	playlist_list2 = 0		;作成時（行）
+	playlist_list3 = ""		;再生時
+	playlist_list5 = 0		;リストの行
+	playlist_list6 = ""		;リストの内容（タイトル）
+	playlist_list7 = ""		;リストのパス
+	strrep file,"\"",""
+	if file = "":name = "ファイルがありません":i = -1
+	use_font = "游ゴシック"
+	use_color1 = $000000
+	use_color2 = $FFFFFF
+	use_color3 = $111111
+	use_color4 = $222222
+	use_bar1 = $555555
+	use_bar2 = $4444FF
+	use_bar3 = $FF4444
+	use_bar4 = $FFFF44
+	use_button1 = $CC33CC
+	use_button2 = $AA33AA
+	use_button3 = $BB33BB
+	
+//ロード ==================================================
+	buffer IMG_01	:picload "img/c1.gif"
+	buffer IMG_02	:color16 use_button1:boxf
+					:color16 use_button2:boxf ,64
+					:color16 use_button3:boxf ,96
+	buffer IMG_03	:picload "img/c3.gif"
+	buffer BUF_01,512,512
+	
+	gsel SCR_MAIN
+	
+//プレイリストの場合 ======================================
+	gosub*Label_MakePlayListList
+	gosub*Label_LoadPlayList
+
+//メイン ==================================================
+	repeat
+		redraw 0
+		if ginfo(2) = 0{
+			mx = mousex:my = mousey:getkey mkey,1
+			if mkey=0:mkeylock=0
+			if mkeylock=1:mkey=0
+			if mkey=1:mkeylock=1
+		}else{mx = 0:my = 0:key = 0}
+		switch mode
+		case 0
+			if ginfo_winy > 64:width 512,ginfo_winy-56
+			;背景
+			color16 use_color1:boxf
+			color16 use_color2:font use_font,12
+			;画像
+			gmode 0,512,512
+			pos 0,64:gcopy BUF_01,0,64
+			;切り替え
+			s = 0:if mx = limit(mx,512-32,512) & my = limit(my,0,32):s = 105:if mkey = 1:mode = 1
+			gmode 3,32,32,255-s
+			pos 512-32,0:gcopy IMG_01
+			;表記
+			pos 5,5:mes name
+			swbreak
+		case 1
+			if ginfo_winy < 512:width 512,ginfo_winy+56
+			;背景
+			color16 use_color1:boxf
+			color16 use_color3:boxf 0,64,512,512
+			color16 use_color4:boxf 0+mode2*256,64,256+mode2*256,96
+			if my = limit(my,64,96){
+				color16 use_button1:boxf 0+mx/256*256,64,256+mx/256*256,96
+				if mkey = 1:mode2 = limit(mx/256,0,1)
+			}
+			;切り替え（内部）
+			if mmode ! mode or mmode2 ! mode2{
+				if mode2 = 0{
+					clrobj:objsize 96,32:objmode 2,0:objimage IMG_02,0,0,0,64,0,96
+					pos 400,460:button gosub "再生",*Label_PlayPlayList
+					objsize 368:pos 128,165:listbox playlist_list5,256,playlist_list6:OBJ_ID1 = stat
+				}else{
+					font use_font,14
+					clrobj:objsize 96,32:objmode 2,0:objimage IMG_02,0,0,0,64,0,96
+					pos 400,460:button gosub "保存",*Label_NewPlayList
+					pos 280,460:button gosub "選択曲の削除",*Label_DelPlayList
+					pos 128,125:input playlist_name,128,22,25:OBJ_ID2 = stat:font use_font,9
+					objsize 368:pos 128,165:listbox playlist_list2,256,playlist_list:OBJ_ID1 = stat
+				}
+			}
+			color16 use_color1:line 256,63,256,96:line 0,96,512,96:line 1,63,1,96:line 510,63,510,96
+			color16 use_color2:font use_font,16
+			pos 128,80:tmes "プレイリストの再生"
+			pos 384,80:tmes "プレイリストの作成"
+			color16 use_color2:font use_font,12
+			pos 5,5:mes name
+			if mode2 = 1{;新規作成
+				pos 32,128:mes "プレイリスト名"
+				pos 32,168:mes "曲のリスト"
+				pos 32,494:mes "D&Dで曲を追加します。"
+				if i = 1{
+					i = 0
+					if playlist_list ! "":playlist_list + "\n"
+					playlist_list = playlist_list + files
+					objprm OBJ_ID1,playlist_list
+					notesel playlist_list:objprm OBJ_ID1,noteinfo(0)-1
+				}
+			}else{
+				pos 32,168:mes "リストのリスト"
+				pos 32,494:mes "プレイリストを再生します。"
+			}
+			;切り替え
+			s = 0:if mx = limit(mx,512-32,512) & my = limit(my,0,32):s = 105:if mkey = 1:mode = 0:gsel BUF_01:gmode 0,512,512:gcopy SCR_MAIN:gsel SCR_MAIN
+			gmode 3,32,32,255-s
+			pos 512-32,0:gcopy IMG_01
+			swbreak
+		swend
+		mmode = lmmode:lmmode = mode
+		mmode2 = mode2
+		;切り替え２（ループ再生）
+		/*s = 0
+		if mx = limit(mx,512-64,512-32) & my = limit(my,0,32){
+			s = 105
+			if mkey = 1{
+				mloop+:if mloop > 1:mloop = 0
+				if playlist = 0 & vAudioIsPlaying(bgm){
+					vAudioGetCurrentTime bgm,time
+					vAudioSetRepeat bgm,mloop
+					vAudioSeek bgm,time
+				}
+			}
+		}
+		gmode 3,32,32,255-s
+		pos 512-64,0:gcopy IMG_03,mloop*32*/
+		;ロード
+		if i = 1 & mode2 ! 1{
+			vstop
+			bgm = vload(file):i = 0
+			if mloop = 1 & playlist_play = 0:vloop bgm
+			vplay bgm
+			name = getpath(file,8)
+		}
+		;プレイリスト終了時
+		if playlist_play = 1{
+			if vAudioIsPlaying(bgm) = 0{
+				notesel playlist_list3
+				noteget f,playlist_play2
+				playlist_play2+:if playlist_play2 > noteinfo(0):playlist_play2 = 0
+				bgm = vload(f)
+				vplay bgm
+				name = "" + playlist_name2 + " / " + getpath(f,8)
+			}
+		}
+		;再生時表示
+		if i = 0 & vAudioIsPlaying(bgm){
+			vAudioGetTotalTime bgm,ctime
+			vAudioGetCurrentTime bgm,time
+			if j2 = 0:ntime = time
+			f = ((512-32)-32)*ntime/ctime
+			color16 use_bar1:boxf 32,44,512-32,52
+			if j1 = 0{color16 use_bar2}else{color16 use_bar3:if j2 = 1{color16 use_bar4}}
+			boxf 32,44,32+f,52
+			j1 = 0
+			j2 = key
+			if ginfo(2) = 0:mx = mousex:my = mousey:getkey key,1:else:mx = 0:my = 0:key = 0:j2 = 0
+			if j2 = 1 & key = 0 & j3 = 1{
+				vAudioSeek bgm,ntime:j3 = 0
+			}
+			if (mx = limit(mx,32,512-32) & my = limit(my,44,52)) or j3 = 1{
+				j1 = 1:if key = 1{
+					mx = limit(mx,32,512-32)
+					ntime = ctime*(mx-32)/((512-32)-32):j3 = 1
+				}else{
+					j3 = 0
+				}
+			}
+			color16 use_color2
+			pos 512,64:edmes ""+strf("%02d:%02d",ntime/1000/60,ntime/1000\60)+"/"+strf("%02d:%02d",ctime/1000/60,ctime/1000\60)+" "
+		}
+		enoteload "mupl5.ini":if notedata ! cmd:cmd = notedata:i = 1:noteget file,0:strrep file,"\"","":if file = "":i = -1
+		redraw 1
+		await 1000/60
+	loop
+	
+//プレイリストのリスト作成 ================================
+*Label_MakePlayListList
+	dirlist list,"playlist\\*.mupl5",0
+	playlist_list7 = list
+	playlist_list6 = ""
+	repeat stat
+		notesel playlist_list7
+		noteget f,cnt
+		notesel data
+		noteload "playlist\\"+f
+		t = "無題"
+		repeat noteinfo(0)
+			noteget d,cnt
+			split d,"=",p1,p2
+			if p1 = "title":t = p2
+		loop
+		if playlist_list6 ! "":playlist_list6 + "\n"
+		playlist_list6 + t
+	loop
+	return
+	
+//プレイリスト再生 ========================================
+*Label_PlayPlayList
+	i = 1
+	notesel playlist_list7
+	noteget file,playlist_list5
+	file = "playlist\\"+file
+	gosub*Label_LoadPlayList
+	return
+	
+//選択曲の削除 ============================================
+*Label_DelPlayList
+	notesel playlist_list
+	notedel playlist_list2
+	objprm OBJ_ID1,playlist_list
+	objprm OBJ_ID1,limit(playlist_list2-1,0,playlist_list2)
+	return
+	
+//新規プレイリスト ========================================
+*Label_NewPlayList
+	if playlist_name = "":dialog "プレイリスト名を決めてください。":return
+	data = "title="+playlist_name+"\n"
+	notesel playlist_list
+	repeat noteinfo(0)
+		noteget d,cnt
+		data + "src=" + d + "\n"
+	loop
+	mkdir2 "playlist"
+	notesel data
+	repeat
+		file = "playlist\\"+playlist_name
+		if cnt ! 0:file + " ("+cnt+")"
+		file + ".mupl5"
+		dirlist list,file,0
+		if stat = 0:break
+		await
+	loop
+	notesave file
+	playlist_name = ""
+	playlist_list = ""
+	objprm OBJ_ID2,playlist_name
+	objprm OBJ_ID1,playlist_list
+	return
+
+//終了時 ==================================================
+*Label_Exit
+	f = 0
+	repeat
+		if vAudioIsPlaying(bgm){
+			if f = 0:vAudioFadeOut bgm,FadeTime:f = 1
+		}else{
+			end
+		}
+		await
+	loop
+	
+//D&D時 ===================================================
+*Label_OnDropFiles
+	hdrop = wParam
+	files = ""
+	DragQueryFile hdrop,-1,0,0
+	ndrop = stat
+	sdim filename,260
+	repeat ndrop
+		DragQueryFile hdrop,cnt,varptr(filename),260
+		if cnt ! 0:files + "\n"
+		files + filename
+	loop
+	DragFinish hdrop
+	i = 1:file = filename
+	if mode = 0 or mode2 = 0{
+		gosub*Label_LoadPlayList
+	}
+	return
+	
+//プレイリストのロード ====================================
+*Label_LoadPlayList
+	playlist_play = 0
+	k = getpath(file,2)
+	if k = ".mupl5"{
+		playlist_play = 1
+		playlist_play2 = 0
+		playlist_name2 = ""
+		playlist_list3 = ""
+		notesel data
+		noteload file
+		repeat noteinfo(0)
+			noteget d,cnt
+			split d,"=",p1,p2
+			if p1 = "src"{
+				if playlist_list3 ! "":playlist_list3 + "\n"
+				playlist_list3 + p2
+			}
+			if p1 = "title":playlist_name2 = p2
+		loop
+	}
+	return
