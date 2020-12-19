@@ -1,0 +1,11 @@
+playlist
+
+# hsp
+hsptmp
+packfile
+*.ax
+obj
+
+# vscode
+.vscode
+© 2020 GitHub, Inc.

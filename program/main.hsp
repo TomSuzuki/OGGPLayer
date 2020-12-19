@@ -140,7 +140,7 @@ randomize
 			if mode2 = 1{;新規作成
 				pos 32,128:mes "プレイリスト名"
 				pos 32,168:mes "曲のリスト"
-				pos 32,494:mes "D&Dで曲を追加します。"
+				pos 32,494:mes "ドラッグ＆ドロップで曲を追加します。"
 				if i = 1{
 					i = 0
 					if playlist_list ! "":playlist_list + "\n"
